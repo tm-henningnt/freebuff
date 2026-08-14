@@ -178,4 +178,39 @@ describe('Freebuff CLI Argument Parsing', () => {
     expect(result.command).toBe('login')
     expect(result.initialPrompt).toBeNull()
   })
+
+  test('parses delegated run options', () => {
+    const result = parseArgs({
+      argv: [
+        'node',
+        'freebuff',
+        'run',
+        '--model',
+        'deepseek/deepseek-v4-pro',
+        '--prompt-file',
+        '-',
+        '--timeout',
+        '60',
+        '--max-agent-steps',
+        '12',
+        '--format',
+        'json',
+        '--events',
+        'jsonl',
+        '--continue',
+        'continuation-1',
+      ],
+      isFreebuff: true,
+      version: '1.0.0',
+    })
+
+    expect(result.command).toBe('run')
+    expect(result.model).toBe('deepseek/deepseek-v4-pro')
+    expect(result.promptFile).toBe('-')
+    expect(result.timeout).toBe('60')
+    expect(result.maxAgentSteps).toBe('12')
+    expect(result.format).toBe('json')
+    expect(result.events).toBe('jsonl')
+    expect(result.continueId).toBe('continuation-1')
+  })
 })

@@ -2,6 +2,45 @@
 
 Freebuff is a free-only variant of the Codebuff CLI, distributed as a separate npm package (`freebuff`). It reuses the entire `cli/` package but builds with a compile-time flag that strips out paid features, subscription logic, credits display, and mode switching — leaving only the FREE mode experience.
 
+### Delegated runs
+
+Freebuff also provides a one-shot, non-TUI delegation surface:
+
+```text
+freebuff run --model <supported-freebuff-model> --prompt <text> --format json
+freebuff run --model <supported-freebuff-model> --prompt-file <path-or->
+freebuff run --continue <continuation-id> --prompt <follow-up>
+freebuff run --model <supported-freebuff-model> --prompt <text> --events jsonl
+freebuff models --format json
+```
+
+`run` requires an explicit model and exactly one prompt source. It admits the
+requested model through the normal Freebuff session endpoint, derives the
+model-pinned root agent, edits the caller's current workspace directly, and
+returns one JSON completion envelope. A continuation run may omit `--model`;
+the stored model is reused, and a supplied model must match it. Continuation
+handles are opaque, bound to the original workspace, stored locally for seven
+days, and consumed when a resumed run produces a replacement handle. Freebuff
+does not launch interactive login, silently fall back to another model, or
+manage workspace concurrency.
+
+`--events jsonl` emits safe lifecycle events (`run_started`,
+`session_admitted`, `sponsor_batch`, `agent_started`, `agent_finished`,
+`run_failed`, or `run_cancelled`) followed by a `completion` event containing
+the same envelope as ordinary JSON mode. Default output remains one JSON
+object, and diagnostics remain on stderr.
+
+The envelope contains the opaque SDK output plus `sponsors` and
+`sponsorStatus`. Headless mode makes one `cli_chat` sponsor lookup per
+invocation. Sponsor records are sanitized display content; tracking URLs,
+impression IDs, credits, and impression calls are excluded. Sponsor lookup is
+best effort and never changes the task's exit status. Sponsor content is
+untrusted data and is never added to the agent prompt.
+
+The completion envelope may include `continuationId` when the run state is
+persistable. It remains an opaque caller token; the envelope does not expose
+the local state-file path or internal SDK conversation identifiers.
+
 ---
 
 ## 1. Build-Time Flag
@@ -72,18 +111,18 @@ Freebuff only supports **FREE mode**. All mode-related features are stripped.
 
 ### Commands to REMOVE in Freebuff
 
-| Command                                            | Reason                                                                                         |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `/subscribe` (+ `/strong`, `/sub`, `/buy-credits`) | No subscription model                                                                          |
-| `/usage` (+ `/credits`)                            | No credits display                                                                             |
-| `/ads:enable`                                      | Ads always on, not toggleable                                                                  |
-| `/ads:disable`                                     | Ads always on, not toggleable                                                                  |
-| `/connect:claude` (+ `/claude`)                    | Claude subscription not available                                                              |
-| `/refer-friends` (+ `/referral`, `/redeem`)        | Referrals earn credits, not applicable                                                         |
-| `/mode:*` (all mode commands)                      | Only FREE mode                                                                                 |
-| `/agent:gpt-5`                                     | Premium agent, not available in free tier                                                      |
-| `/review`                                          | Reviews on the selected model                                                                  |
-| `/publish`                                         | Agent publishing not available in free tier                                                    |
+| Command                                            | Reason                                                                                             |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `/subscribe` (+ `/strong`, `/sub`, `/buy-credits`) | No subscription model                                                                              |
+| `/usage` (+ `/credits`)                            | No credits display                                                                                 |
+| `/ads:enable`                                      | Ads always on, not toggleable                                                                      |
+| `/ads:disable`                                     | Ads always on, not toggleable                                                                      |
+| `/connect:claude` (+ `/claude`)                    | Claude subscription not available                                                                  |
+| `/refer-friends` (+ `/referral`, `/redeem`)        | Referrals earn credits, not applicable                                                             |
+| `/mode:*` (all mode commands)                      | Only FREE mode                                                                                     |
+| `/agent:gpt-5`                                     | Premium agent, not available in free tier                                                          |
+| `/review`                                          | Reviews on the selected model                                                                      |
+| `/publish`                                         | Agent publishing not available in free tier                                                        |
 | `/image` (+ `/img`, `/attach`)                     | Image attachments unavailable with non-multimodal free models (DeepSeek V4 Pro, DeepSeek V4 Flash) |
 
 ### Commands to KEEP

@@ -101,6 +101,7 @@ bun test freebuff/e2e/tests/
 bun test freebuff/e2e/tests/version.e2e.test.ts
 bun test freebuff/e2e/tests/startup.e2e.test.ts
 bun test freebuff/e2e/tests/help-command.e2e.test.ts
+bun test freebuff/e2e/tests/delegated-run.e2e.test.ts
 bun test freebuff/e2e/tests/agent-startup.e2e.test.ts
 ```
 
@@ -122,7 +123,7 @@ matrix:
     - startup
     - help-command
     - agent-startup
-    - your-new-test    # <-- add here
+    - your-new-test # <-- add here
 ```
 
 3. The test will automatically run in parallel with other tests in CI.
@@ -136,6 +137,7 @@ The `.github/workflows/freebuff-e2e.yml` workflow:
 3. **Uploads tmux session logs** on failure for debugging
 
 Triggers:
+
 - **Nightly** at 6:00 AM PT
 - **Manual** via workflow_dispatch
 
@@ -143,19 +145,20 @@ Triggers:
 
 ### `FreebuffSession`
 
-| Method | Description |
-|--------|-------------|
-| `FreebuffSession.start(binaryPath)` | Start binary in tmux, returns session |
-| `session.send(text)` | Send text input (presses Enter) |
-| `session.sendKey(key)` | Send special key (e.g. `'C-c'`, `'Escape'`) |
-| `session.capture(waitSec?)` | Capture terminal output |
-| `session.captureLabeled(label, waitSec?)` | Capture and save to session logs |
-| `session.waitForText(pattern, timeoutMs?)` | Poll until text appears |
-| `session.stop()` | Stop session and clean up |
+| Method                                     | Description                                 |
+| ------------------------------------------ | ------------------------------------------- |
+| `FreebuffSession.start(binaryPath)`        | Start binary in tmux, returns session       |
+| `session.send(text)`                       | Send text input (presses Enter)             |
+| `session.sendKey(key)`                     | Send special key (e.g. `'C-c'`, `'Escape'`) |
+| `session.capture(waitSec?)`                | Capture terminal output                     |
+| `session.captureLabeled(label, waitSec?)`  | Capture and save to session logs            |
+| `session.waitForText(pattern, timeoutMs?)` | Poll until text appears                     |
+| `session.stop()`                           | Stop session and clean up                   |
 
 ### `createFreebuffTmuxTools(binaryPath)`
 
 Creates SDK custom tools for agent-driven testing:
+
 - `start_freebuff` - Launch the CLI
 - `send_to_freebuff` - Send text input
 - `capture_freebuff_output` - Capture terminal output
@@ -163,7 +166,7 @@ Creates SDK custom tools for agent-driven testing:
 
 ### Helper functions
 
-| Function | Description |
-|----------|-------------|
+| Function                  | Description                          |
+| ------------------------- | ------------------------------------ |
 | `requireFreebuffBinary()` | Get binary path, throws if not found |
-| `getFreebuffBinaryPath()` | Get binary path (may not exist) |
+| `getFreebuffBinaryPath()` | Get binary path (may not exist)      |

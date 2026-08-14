@@ -142,7 +142,7 @@ describe.skipIf(!binaryExists)('Freebuff Binary Smoke Tests', () => {
 
       // Mode flags should not be present in Freebuff
       expect(output).not.toMatch(/--free\b/)
-      expect(output).not.toMatch(/--max\b/)
+      expect(output).not.toMatch(/--max(?:\s|$)/)
       expect(output).not.toMatch(/--plan\b/)
       expect(output).not.toMatch(/--lite\b/)
     },
@@ -241,18 +241,12 @@ describe.skipIf(!binaryExists)('Freebuff Binary Smoke Tests', () => {
 // Show skip messages so test output is informative
 if (!binaryExists) {
   describe('Freebuff Binary Required', () => {
-    test.skip(
-      'Build the binary first: bun freebuff/cli/build.ts <version>',
-      () => {},
-    )
+    test.skip('Build the binary first: bun freebuff/cli/build.ts <version>', () => {})
   })
 }
 
 if (binaryExists && !tmuxAvailable) {
   describe('tmux Required for Title Screen Test', () => {
-    test.skip(
-      'Install tmux: brew install tmux (macOS) or apt-get install tmux (Linux)',
-      () => {},
-    )
+    test.skip('Install tmux: brew install tmux (macOS) or apt-get install tmux (Linux)', () => {})
   })
 }

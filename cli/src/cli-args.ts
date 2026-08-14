@@ -16,6 +16,13 @@ export type ParsedArgs = {
   continueId?: string | null
   cwd?: string
   initialMode?: AgentMode
+  model?: string
+  prompt?: string
+  promptFile?: string
+  timeout?: string
+  maxAgentSteps?: string
+  format?: string
+  events?: string
 }
 
 export function loadPackageVersion(): string {
@@ -48,7 +55,8 @@ export function parseArgs({
   const program = new Command()
 
   if (isFreebuff) {
-    // Freebuff: simplified CLI - no prompt args, no agent override, no clear-logs
+    // Freebuff: the bare invocation remains interactive. `run` is the
+    // separate machine-readable delegation surface.
     program
       .name('freebuff')
       .description('Freebuff - Free AI coding assistant')
@@ -61,8 +69,35 @@ export function parseArgs({
         '--cwd <directory>',
         'Set the working directory (default: current directory)',
       )
+      .option('--model <model-id>', 'Freebuff model id for a delegated run')
+      .option('--prompt <text>', 'Prompt for a delegated run')
+      .option(
+        '--prompt-file <path>',
+        'Read a delegated prompt from a file, or - for stdin',
+      )
+      .option(
+        '--timeout <seconds>',
+        'Maximum delegated-run duration (default: 1800 seconds)',
+      )
+      .option(
+        '--max-agent-steps <steps>',
+        'Maximum agent steps for a delegated run',
+      )
+      .option(
+        '--format <format>',
+        'Output format (run currently supports json)',
+      )
+      .option('--events <format>', 'Progress event format (run supports jsonl)')
       .addArgument(
-        new Argument('[command]', 'Command to run').choices(['login']),
+        new Argument('[command]', 'Command to run').choices([
+          'login',
+          'run',
+          'models',
+        ]),
+      )
+      .addHelpText(
+        'after',
+        '\nCommands:\n  run                            Run one delegated task and emit JSON\n  models                         List the local Freebuff model catalog\n  login                          Log in without starting the TUI',
       )
       .helpOption('-h, --help', 'Show this help message')
   } else {
@@ -130,5 +165,12 @@ export function parseArgs({
         : null,
     cwd: options.cwd,
     initialMode,
+    model: options.model,
+    prompt: options.prompt,
+    promptFile: options.promptFile,
+    timeout: options.timeout,
+    maxAgentSteps: options.maxAgentSteps,
+    format: options.format,
+    events: options.events,
   }
 }

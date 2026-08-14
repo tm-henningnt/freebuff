@@ -14,6 +14,8 @@ import { getProjectRoot } from '../project-files'
 import type { ClientToolCall } from '@codebuff/common/tools/list'
 
 let clientInstance: CodebuffClient | null = null
+let headlessClientInstance: CodebuffClient | null = null
+let headlessInteractiveInputRequested = false
 
 /**
  * Recursively removes undefined values from an object to ensure clean JSON serialization.
@@ -44,10 +46,19 @@ function removeUndefinedValues<T>(obj: T): T {
  */
 export function resetCodebuffClient(): void {
   clientInstance = null
+  headlessClientInstance = null
+  headlessInteractiveInputRequested = false
 }
 
-export async function getCodebuffClient(): Promise<CodebuffClient | null> {
-  if (!clientInstance) {
+async function getClient(params: {
+  interactiveTools: boolean
+}): Promise<CodebuffClient | null> {
+  const cachedClient = params.interactiveTools
+    ? clientInstance
+    : headlessClientInstance
+  if (cachedClient) return cachedClient
+
+  {
     const { token: apiKey } = getAuthTokenDetails()
 
     if (!apiKey) {
@@ -74,7 +85,7 @@ export async function getCodebuffClient(): Promise<CodebuffClient | null> {
 
     try {
       const agentDefinitions = loadAgentDefinitions()
-      clientInstance = new CodebuffClient({
+      const client = new CodebuffClient({
         apiKey,
         cwd: projectRoot,
         // Keeps the model's skill list identical to the one the registry shows
@@ -86,32 +97,75 @@ export async function getCodebuffClient(): Promise<CodebuffClient | null> {
         logger,
         traceWriter: createTraceWriter(),
         terminalCommandBroker,
-        overrideTools: {
-          ask_user: async (input: ClientToolCall<'ask_user'>['input']) => {
-            const askUserResponse = await AskUserBridge.request(
-              'cli-override',
-              input.questions,
-            )
-            const response = askUserResponse as {
-              answers?: Array<{ questionIndex: number; selectedOption: string }>
-              skipped?: boolean
-            }
-            return [
-              {
-                type: 'json',
-                value: removeUndefinedValues(response),
+        ...(params.interactiveTools
+          ? {
+              overrideTools: {
+                ask_user: async (
+                  input: ClientToolCall<'ask_user'>['input'],
+                ) => {
+                  const askUserResponse = await AskUserBridge.request(
+                    'cli-override',
+                    input.questions,
+                  )
+                  const response = askUserResponse as {
+                    answers?: Array<{
+                      questionIndex: number
+                      selectedOption: string
+                    }>
+                    skipped?: boolean
+                  }
+                  return [
+                    {
+                      type: 'json',
+                      value: removeUndefinedValues(response),
+                    },
+                  ]
+                },
               },
-            ]
-          },
-        },
+            }
+          : {
+              overrideTools: {
+                ask_user: async () => {
+                  headlessInteractiveInputRequested = true
+                  return [
+                    {
+                      type: 'json' as const,
+                      value: {
+                        errorMessage:
+                          'Interactive input is unavailable in delegated runs.',
+                      },
+                    },
+                  ]
+                },
+              },
+            }),
       })
+      if (params.interactiveTools) clientInstance = client
+      else headlessClientInstance = client
     } catch (error) {
       logger.error(error, 'Failed to initialize CodebuffClient')
       return null
     }
   }
 
-  return clientInstance
+  return params.interactiveTools ? clientInstance : headlessClientInstance
+}
+
+export async function getCodebuffClient(): Promise<CodebuffClient | null> {
+  return getClient({ interactiveTools: true })
+}
+
+/**
+ * Create a client for delegated runs without installing the TUI's ask_user
+ * bridge. A headless process must never block waiting for terminal input.
+ */
+export async function getHeadlessCodebuffClient(): Promise<CodebuffClient | null> {
+  headlessInteractiveInputRequested = false
+  return getClient({ interactiveTools: false })
+}
+
+export function wasHeadlessInteractiveInputRequested(): boolean {
+  return headlessInteractiveInputRequested
 }
 
 export function getToolDisplayInfo(toolName: string): {

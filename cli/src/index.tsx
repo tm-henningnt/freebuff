@@ -13,8 +13,6 @@ import path from 'path'
 
 import { AnalyticsEvent } from '@codebuff/common/constants/analytics-events'
 import { getProjectFileTree } from '@codebuff/common/project-file-tree'
-import { createCliRenderer } from '@opentui/core'
-import { createRoot } from '@opentui/react'
 import {
   QueryClient,
   QueryClientProvider,
@@ -23,7 +21,6 @@ import {
 import { cyan, green, red, yellow } from 'picocolors'
 import React from 'react'
 
-import { App } from './app'
 import { loadPackageVersion, parseArgs } from './cli-args'
 import { handlePublish } from './commands/publish'
 import { runPlainLogin } from './login/plain-login'
@@ -50,6 +47,21 @@ import { installTerminalProtocolController } from './utils/terminal-protocol-con
 import { initializeSkillRegistry } from './utils/skill-registry'
 import { detectTerminalTheme } from './utils/terminal-color-detection'
 import { setOscDetectedTheme } from './utils/theme-system'
+import {
+  DELEGATED_RUN_EXIT_CODES,
+  getFreebuffModelCatalog,
+  readDelegatedPrompt,
+  runDelegated,
+  validateDelegatedRunArgs,
+  type DelegatedRunEnvelope,
+} from './delegated-run'
+import {
+  serializeDelegatedCompletion,
+  serializeDelegatedEvent,
+  type DelegatedOutputMode,
+} from './delegated-output'
+
+import type { DelegatedRunEvent } from './delegated-run'
 
 import type { FileTreeNode } from '@codebuff/common/util/file'
 
@@ -78,6 +90,171 @@ function createQueryClient(): QueryClient {
       },
     },
   })
+}
+
+function writeDelegatedEnvelope(
+  envelope: DelegatedRunEnvelope,
+  mode: DelegatedOutputMode = 'json',
+): void {
+  process.stdout.write(serializeDelegatedCompletion(envelope, mode))
+}
+
+function writeDelegatedEvent(event: DelegatedRunEvent): void {
+  process.stdout.write(serializeDelegatedEvent(event))
+}
+
+function getDelegatedOutputMode(events?: string): DelegatedOutputMode {
+  return events === 'jsonl' ? 'jsonl' : 'json'
+}
+
+function getDelegatedOutputModeFromArgv(
+  argv: string[] = process.argv,
+): DelegatedOutputMode {
+  const eventsArg = argv.find(
+    (arg) => arg === '--events' || arg.startsWith('--events='),
+  )
+  return getDelegatedOutputMode(
+    eventsArg?.startsWith('--events=')
+      ? eventsArg.slice('--events='.length)
+      : eventsArg
+        ? argv[argv.indexOf(eventsArg) + 1]
+        : undefined,
+  )
+}
+
+function writeDelegatedError(
+  params: {
+    code: string
+    message: string
+    model?: string
+  },
+  exitCode: number,
+  mode: DelegatedOutputMode = 'json',
+): void {
+  writeDelegatedEnvelope(
+    {
+      schemaVersion: 1,
+      status: 'error',
+      ...(params.model ? { model: params.model } : {}),
+      durationMs: 0,
+      sponsors: [],
+      sponsorStatus: 'unavailable',
+      error: { code: params.code, message: params.message },
+    },
+    mode,
+  )
+  process.exitCode = exitCode
+}
+
+function writeDelegatedArgumentError(params: {
+  code: string
+  message: string
+  model?: string
+  mode?: DelegatedOutputMode
+}): void {
+  writeDelegatedError(
+    params,
+    DELEGATED_RUN_EXIT_CODES.invalidArguments,
+    params.mode,
+  )
+}
+
+function writeDelegatedRuntimeError(
+  model: string | undefined,
+  mode: DelegatedOutputMode,
+): void {
+  writeDelegatedError(
+    {
+      code: 'runtime_error',
+      message: 'The delegated run failed before it could return a result.',
+      model,
+    },
+    DELEGATED_RUN_EXIT_CODES.runtimeError,
+    mode,
+  )
+}
+
+async function runDelegatedCommand(params: {
+  model?: string
+  prompt?: string
+  promptFile?: string
+  cwd?: string
+  timeout?: string
+  maxAgentSteps?: string
+  format?: string
+  events?: string
+  continue?: boolean
+  continueId?: string | null
+}): Promise<void> {
+  const outputMode = getDelegatedOutputMode(params.events)
+  const validation = validateDelegatedRunArgs(params)
+  if (!validation.valid) {
+    writeDelegatedArgumentError({
+      code: validation.code,
+      message: validation.message,
+      model: params.model,
+      mode: outputMode,
+    })
+    return
+  }
+
+  let prompt: string
+  try {
+    prompt = await readDelegatedPrompt({
+      prompt: params.prompt,
+      promptFile: params.promptFile,
+      stdinIsTTY: process.stdin.isTTY,
+    })
+  } catch (error) {
+    writeDelegatedArgumentError({
+      code:
+        error instanceof Error && 'code' in error
+          ? String((error as { code?: unknown }).code)
+          : 'prompt_read_failed',
+      message:
+        error instanceof Error && error.name === 'DelegatedRunError'
+          ? error.message
+          : 'Unable to read the delegated prompt.',
+      model: validation.model,
+      mode: outputMode,
+    })
+    return
+  }
+
+  const abortController = new AbortController()
+  const onSignal = (signal: NodeJS.Signals) => {
+    abortController.abort(new Error(`Received ${signal}.`))
+  }
+  const onSigInt = () => onSignal('SIGINT')
+  const onSigTerm = () => onSignal('SIGTERM')
+  process.once('SIGINT', onSigInt)
+  process.once('SIGTERM', onSigTerm)
+
+  try {
+    const result = await runDelegated({
+      model: validation.model,
+      prompt,
+      ...(validation.continuationId
+        ? { continuationId: validation.continuationId }
+        : {}),
+      cwd: params.cwd ?? process.cwd(),
+      timeoutMs: validation.timeoutMs,
+      ...(validation.maxAgentSteps !== undefined
+        ? { maxAgentSteps: validation.maxAgentSteps }
+        : {}),
+      ...(outputMode === 'jsonl' ? { onEvent: writeDelegatedEvent } : {}),
+      signal: abortController.signal,
+    })
+    writeDelegatedEnvelope(result.envelope, outputMode)
+    process.exitCode = result.exitCode
+  } catch {
+    // Keep the process contract intact even if a host-level setup failure
+    // escapes the runner.
+    writeDelegatedRuntimeError(validation.model, outputMode)
+  } finally {
+    process.removeListener('SIGINT', onSigInt)
+    process.removeListener('SIGTERM', onSigTerm)
+  }
 }
 
 async function main(): Promise<void> {
@@ -203,6 +380,23 @@ async function main(): Promise<void> {
     }
   }
 
+  let parsedArgs: ReturnType<typeof parseArgs>
+  try {
+    parsedArgs = parseArgs()
+  } catch (error) {
+    // Commander owns human-facing diagnostics for the interactive CLI. A
+    // delegated invocation must still return one machine-readable envelope.
+    if (IS_FREEBUFF && process.argv.slice(2).includes('run')) {
+      writeDelegatedArgumentError({
+        code: 'invalid_arguments',
+        message: 'Invalid arguments for `freebuff run`.',
+        mode: getDelegatedOutputModeFromArgv(),
+      })
+      return
+    }
+    throw error
+  }
+
   const {
     initialPrompt,
     command,
@@ -212,16 +406,73 @@ async function main(): Promise<void> {
     continueId,
     cwd,
     initialMode,
-  } = parseArgs()
+    model,
+    prompt,
+    promptFile,
+    timeout,
+    maxAgentSteps,
+    format,
+    events,
+  } = parsedArgs
+
+  if (IS_FREEBUFF && command === 'models') {
+    if (format && format !== 'json') {
+      process.stderr.write(
+        '`freebuff models` currently supports only --format json.\n',
+      )
+      process.exitCode = DELEGATED_RUN_EXIT_CODES.invalidArguments
+      return
+    }
+    process.stdout.write(`${JSON.stringify(getFreebuffModelCatalog())}\n`)
+    return
+  }
 
   const isLoginCommand = command === 'login'
   const isPublishCommand = command === 'publish'
   const hasAgentOverride = Boolean(agent?.trim())
 
-  await initializeApp({ cwd })
+  try {
+    await initializeApp({ cwd })
+  } catch (error) {
+    if (IS_FREEBUFF && command === 'run') {
+      writeDelegatedError(
+        {
+          code: 'workspace_init_failed',
+          message: 'Unable to initialize the delegated workspace.',
+          model,
+        },
+        DELEGATED_RUN_EXIT_CODES.runtimeError,
+        getDelegatedOutputMode(events),
+      )
+      return
+    }
+    throw error
+  }
 
   // Set the auth token for the API client
   setApiClientAuthToken(getAuthToken())
+
+  if (IS_FREEBUFF && command === 'run') {
+    try {
+      await initializeAgentRegistry()
+      await initializeSkillRegistry()
+      await runDelegatedCommand({
+        model,
+        prompt,
+        promptFile,
+        cwd,
+        timeout,
+        maxAgentSteps,
+        format,
+        events,
+        continue: continueChat,
+        continueId,
+      })
+    } catch {
+      writeDelegatedRuntimeError(model, getDelegatedOutputMode(events))
+    }
+    return
+  }
 
   // Handle login command before rendering the app
   if (isLoginCommand) {
@@ -298,6 +549,11 @@ async function main(): Promise<void> {
   setTimeout(trimOversizedChatLogs, 0)
 
   const queryClient = createQueryClient()
+  const [{ createCliRenderer }, { createRoot }, { App }] = await Promise.all([
+    import('@opentui/core'),
+    import('@opentui/react'),
+    import('./app'),
+  ])
 
   const AppWithAsyncAuth = () => {
     const [requireAuth, setRequireAuth] = React.useState<boolean | null>(null)
