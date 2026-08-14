@@ -56,6 +56,7 @@ cli/release-staging/launcher.js
 cli/release-staging/http.js
 freebuff/cli/release/launcher.js
 freebuff/cli/release/http.js
+freebuff/cli/public-env.ts
 xcuserdata/
 .claude/settings.local.json
 

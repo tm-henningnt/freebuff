@@ -17,6 +17,8 @@ import { spawnSync } from 'child_process'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 
+import { getFreebuffBuildEnv } from './public-env'
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dirname, '..', '..')
 
@@ -34,10 +36,7 @@ const result = spawnSync(
   {
     cwd: repoRoot,
     stdio: 'inherit',
-    env: {
-      ...process.env,
-      FREEBUFF_MODE: 'true',
-    },
+    env: getFreebuffBuildEnv(),
   },
 )
 
