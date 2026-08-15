@@ -111,7 +111,7 @@ export async function callFreebuffSession(
   } = {},
 ): Promise<FreebuffSessionServerResponse> {
   const headers: Record<string, string> = { Authorization: `Bearer ${token}` }
-  if (method === 'GET' && opts.instanceId) {
+  if ((method === 'GET' || method === 'DELETE') && opts.instanceId) {
     headers[FREEBUFF_INSTANCE_HEADER] = opts.instanceId
   }
   if (method === 'GET' && opts.compact) {

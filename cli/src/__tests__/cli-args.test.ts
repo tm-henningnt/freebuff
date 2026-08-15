@@ -199,6 +199,9 @@ describe('Freebuff CLI Argument Parsing', () => {
         'jsonl',
         '--continue',
         'continuation-1',
+        '--session',
+        'session-1',
+        '--keep-session',
       ],
       isFreebuff: true,
       version: '1.0.0',
@@ -212,5 +215,19 @@ describe('Freebuff CLI Argument Parsing', () => {
     expect(result.format).toBe('json')
     expect(result.events).toBe('jsonl')
     expect(result.continueId).toBe('continuation-1')
+    expect(result.sessionId).toBe('session-1')
+    expect(result.keepSession).toBe(true)
+  })
+
+  test('parses retained session end command', () => {
+    const result = parseArgs({
+      argv: ['node', 'freebuff', 'session', 'end', '--session', 'session-1'],
+      isFreebuff: true,
+      version: '1.0.0',
+    })
+
+    expect(result.command).toBe('session')
+    expect(result.subcommand).toBe('end')
+    expect(result.sessionId).toBe('session-1')
   })
 })

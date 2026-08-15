@@ -58,8 +58,11 @@ import {
 import {
   serializeDelegatedCompletion,
   serializeDelegatedEvent,
+  serializeDelegatedSessionEnd,
   type DelegatedOutputMode,
+  type DelegatedSessionEndEnvelope,
 } from './delegated-output'
+import { DelegatedSessionError, endDelegatedSession } from './delegated-session'
 
 import type { DelegatedRunEvent } from './delegated-run'
 
@@ -101,6 +104,10 @@ function writeDelegatedEnvelope(
 
 function writeDelegatedEvent(event: DelegatedRunEvent): void {
   process.stdout.write(serializeDelegatedEvent(event))
+}
+
+function writeDelegatedSessionEnd(envelope: DelegatedSessionEndEnvelope): void {
+  process.stdout.write(serializeDelegatedSessionEnd(envelope))
 }
 
 function getDelegatedOutputMode(events?: string): DelegatedOutputMode {
@@ -185,6 +192,8 @@ async function runDelegatedCommand(params: {
   events?: string
   continue?: boolean
   continueId?: string | null
+  sessionId?: string
+  keepSession?: boolean
 }): Promise<void> {
   const outputMode = getDelegatedOutputMode(params.events)
   const validation = validateDelegatedRunArgs(params)
@@ -237,6 +246,8 @@ async function runDelegatedCommand(params: {
       ...(validation.continuationId
         ? { continuationId: validation.continuationId }
         : {}),
+      ...(validation.sessionId ? { sessionId: validation.sessionId } : {}),
+      ...(validation.keepSession ? { keepSession: true } : {}),
       cwd: params.cwd ?? process.cwd(),
       timeoutMs: validation.timeoutMs,
       ...(validation.maxAgentSteps !== undefined
@@ -254,6 +265,66 @@ async function runDelegatedCommand(params: {
   } finally {
     process.removeListener('SIGINT', onSigInt)
     process.removeListener('SIGTERM', onSigTerm)
+  }
+}
+
+async function runDelegatedSessionEndCommand(params: {
+  sessionId?: string
+}): Promise<void> {
+  const sessionId = params.sessionId?.trim()
+  if (!sessionId) {
+    writeDelegatedSessionEnd({
+      schemaVersion: 1,
+      status: 'error',
+      error: {
+        code: 'session_id_required',
+        message: '`freebuff session end` requires `--session <session-id>`.',
+      },
+    })
+    process.exitCode = DELEGATED_RUN_EXIT_CODES.invalidArguments
+    return
+  }
+
+  const token = getAuthTokenDetails().token
+  if (!token) {
+    writeDelegatedSessionEnd({
+      schemaVersion: 1,
+      status: 'error',
+      sessionId,
+      error: {
+        code: 'auth_required',
+        message:
+          'No authentication token is available. Run `freebuff login` first.',
+      },
+    })
+    process.exitCode = DELEGATED_RUN_EXIT_CODES.runtimeError
+    return
+  }
+
+  try {
+    const lease = await endDelegatedSession({ token, sessionId })
+    writeDelegatedSessionEnd({
+      schemaVersion: 1,
+      status: 'ended',
+      sessionId: lease.id,
+      model: lease.model,
+      expiresAt: lease.expiresAt,
+    })
+  } catch (error) {
+    const normalized =
+      error instanceof DelegatedSessionError
+        ? { code: error.code, message: error.message }
+        : {
+            code: 'session_end_failed',
+            message: 'Unable to end the retained Freebuff session.',
+          }
+    writeDelegatedSessionEnd({
+      schemaVersion: 1,
+      status: 'error',
+      sessionId,
+      error: normalized,
+    })
+    process.exitCode = DELEGATED_RUN_EXIT_CODES.runtimeError
   }
 }
 
@@ -386,7 +457,23 @@ async function main(): Promise<void> {
   } catch (error) {
     // Commander owns human-facing diagnostics for the interactive CLI. A
     // delegated invocation must still return one machine-readable envelope.
-    if (IS_FREEBUFF && process.argv.slice(2).includes('run')) {
+    if (
+      IS_FREEBUFF &&
+      (process.argv.slice(2).includes('run') ||
+        process.argv.slice(2).includes('session'))
+    ) {
+      if (process.argv.slice(2).includes('session')) {
+        writeDelegatedSessionEnd({
+          schemaVersion: 1,
+          status: 'error',
+          error: {
+            code: 'invalid_arguments',
+            message: 'Invalid arguments for `freebuff session`.',
+          },
+        })
+        process.exitCode = DELEGATED_RUN_EXIT_CODES.invalidArguments
+        return
+      }
       writeDelegatedArgumentError({
         code: 'invalid_arguments',
         message: 'Invalid arguments for `freebuff run`.',
@@ -400,6 +487,7 @@ async function main(): Promise<void> {
   const {
     initialPrompt,
     command,
+    subcommand,
     agent,
     clearLogs,
     continue: continueChat,
@@ -413,6 +501,8 @@ async function main(): Promise<void> {
     maxAgentSteps,
     format,
     events,
+    sessionId,
+    keepSession,
   } = parsedArgs
 
   if (IS_FREEBUFF && command === 'models') {
@@ -424,6 +514,23 @@ async function main(): Promise<void> {
       return
     }
     process.stdout.write(`${JSON.stringify(getFreebuffModelCatalog())}\n`)
+    return
+  }
+
+  if (IS_FREEBUFF && command === 'session') {
+    if (subcommand !== 'end') {
+      writeDelegatedSessionEnd({
+        schemaVersion: 1,
+        status: 'error',
+        error: {
+          code: 'invalid_arguments',
+          message: '`freebuff session` currently supports only `end`.',
+        },
+      })
+      process.exitCode = DELEGATED_RUN_EXIT_CODES.invalidArguments
+      return
+    }
+    await runDelegatedSessionEndCommand({ sessionId })
     return
   }
 
@@ -467,6 +574,8 @@ async function main(): Promise<void> {
         events,
         continue: continueChat,
         continueId,
+        sessionId,
+        keepSession,
       })
     } catch {
       writeDelegatedRuntimeError(model, getDelegatedOutputMode(events))

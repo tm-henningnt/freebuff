@@ -45,6 +45,31 @@ Continuation handles are bound to the workspace and model and expire after
 seven days. A model is optional when resuming; if supplied, it must match the
 original run.
 
+By default, a delegated run releases its server-side Freebuff session when it
+finishes. Premium sessions can instead be retained explicitly:
+
+```bash
+freebuff run \
+  --model deepseek/deepseek-v4-pro \
+  --prompt "Inspect the test failure" \
+  --keep-session
+```
+
+The JSON result then includes a `session` object with the opaque `id`, bound
+`model`, and `expiresAt`. Reuse that lease with `--session <id>`; combine it
+with `--continue <continuation-id>` when both the server session and local
+agent state should be resumed. A resumed lease is released after the run
+unless `--keep-session` is supplied again.
+
+End a retained lease explicitly when it is no longer needed:
+
+```bash
+freebuff session end --session <session-id>
+```
+
+Session commands emit one structured JSON object. If a process is terminated
+before cleanup, the server-side expiry remains the backstop.
+
 For lifecycle progress, opt into JSONL. The final line is a `completion` event
 containing the same envelope returned by ordinary JSON mode:
 

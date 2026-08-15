@@ -10,6 +10,7 @@ const require = createRequire(import.meta.url)
 export type ParsedArgs = {
   initialPrompt: string | null
   command?: string
+  subcommand?: string
   agent?: string
   clearLogs: boolean
   continue: boolean
@@ -23,6 +24,8 @@ export type ParsedArgs = {
   maxAgentSteps?: string
   format?: string
   events?: string
+  sessionId?: string
+  keepSession: boolean
 }
 
 export function loadPackageVersion(): string {
@@ -88,16 +91,25 @@ export function parseArgs({
         'Output format (run currently supports json)',
       )
       .option('--events <format>', 'Progress event format (run supports jsonl)')
+      .option('--session <session-id>', 'Reuse a retained delegated session')
+      .option(
+        '--keep-session',
+        'Keep the delegated session open after this run',
+      )
       .addArgument(
         new Argument('[command]', 'Command to run').choices([
           'login',
           'run',
           'models',
+          'session',
         ]),
+      )
+      .addArgument(
+        new Argument('[subcommand]', 'Session subcommand').choices(['end']),
       )
       .addHelpText(
         'after',
-        '\nCommands:\n  run                            Run one delegated task and emit JSON\n  models                         List the local Freebuff model catalog\n  login                          Log in without starting the TUI',
+        '\nCommands:\n  run                            Run one delegated task and emit JSON\n  models                         List the local Freebuff model catalog\n  session end                   End a retained delegated session\n  login                          Log in without starting the TUI',
       )
       .helpOption('-h, --help', 'Show this help message')
   } else {
@@ -156,6 +168,7 @@ export function parseArgs({
   return {
     initialPrompt: !isFreebuff && args.length > 0 ? args.join(' ') : null,
     command: args[0],
+    subcommand: args[1],
     agent: options.agent,
     clearLogs: options.clearLogs || false,
     continue: Boolean(continueFlag),
@@ -172,5 +185,7 @@ export function parseArgs({
     maxAgentSteps: options.maxAgentSteps,
     format: options.format,
     events: options.events,
+    sessionId: options.session,
+    keepSession: Boolean(options.keepSession),
   }
 }

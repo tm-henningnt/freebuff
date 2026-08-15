@@ -13,6 +13,7 @@ import type { DelegatedContinuationRecord } from '../utils/delegated-continuatio
 import type { AdResponse } from '../utils/sponsor-ads'
 
 const MODEL = 'deepseek/deepseek-v4-pro'
+const EXPIRES_AT = '2026-08-15T13:00:00.000Z'
 
 const ad: AdResponse = {
   adText: 'Build faster with Example.',
@@ -58,6 +59,12 @@ describe('delegated run arguments', () => {
     ).toMatchObject({ valid: true })
     expect(
       validateDelegatedRunArgs({
+        sessionId: 'session-1',
+        prompt: 'follow up',
+      }),
+    ).toMatchObject({ valid: true, sessionId: 'session-1' })
+    expect(
+      validateDelegatedRunArgs({
         model: MODEL,
         prompt: 'one',
         events: 'xml',
@@ -88,7 +95,15 @@ function createDependencies(): {
     getToken: () => 'token',
     admit: async ({ model }) => {
       calls.push(`admit:${model}`)
-      return { instanceId: 'instance-1', model }
+      return { instanceId: 'instance-1', model, expiresAt: EXPIRES_AT }
+    },
+    resume: async ({ sessionId, model }) => {
+      calls.push(`resume:${sessionId}`)
+      return {
+        instanceId: sessionId,
+        model: model ?? MODEL,
+        expiresAt: EXPIRES_AT,
+      }
     },
     release: async () => {
       calls.push('release')
@@ -187,6 +202,49 @@ test('authentication failure is structured and does not start a session', async 
     sponsorStatus: 'unavailable',
   })
   expect(calls).toEqual([])
+})
+
+test('keeps a retained session and returns its lease metadata', async () => {
+  const { dependencies, calls } = createDependencies()
+  const result = await runDelegated(
+    {
+      model: MODEL,
+      prompt: 'Keep it',
+      timeoutMs: 10_000,
+      keepSession: true,
+    },
+    dependencies,
+  )
+
+  expect(result.envelope.session).toEqual({
+    id: 'instance-1',
+    model: MODEL,
+    expiresAt: EXPIRES_AT,
+  })
+  expect(calls).not.toContain('release')
+})
+
+test('resumes a retained session without admitting a new one', async () => {
+  const { dependencies, calls } = createDependencies()
+  const result = await runDelegated(
+    {
+      sessionId: 'session-1',
+      prompt: 'Resume it',
+      timeoutMs: 10_000,
+      keepSession: true,
+    },
+    dependencies,
+  )
+
+  expect(result.envelope.model).toBe(MODEL)
+  expect(result.envelope.session).toEqual({
+    id: 'session-1',
+    model: MODEL,
+    expiresAt: EXPIRES_AT,
+  })
+  expect(calls).toContain('resume:session-1')
+  expect(calls).not.toContain('admit:undefined')
+  expect(calls).not.toContain('release')
 })
 
 test('emits safe lifecycle events and returns a continuation handle', async () => {

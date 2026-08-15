@@ -27,6 +27,11 @@ import {
   type AdRequestResult,
   type SponsorMessage,
 } from './utils/sponsor-ads'
+import {
+  DelegatedSessionError,
+  resumeDelegatedSession,
+  type DelegatedSessionLease,
+} from './delegated-session'
 
 import type { AgentDefinition, RunState } from '@codebuff/sdk'
 import type { AgentOutput } from '@codebuff/common/types/session-state'
@@ -51,6 +56,7 @@ export type DelegatedRunEnvelope = {
   traceSessionId?: string
   cost?: number
   continuationId?: string
+  session?: DelegatedSessionLease
   sponsors: SponsorMessage[]
   sponsorStatus: SponsorStatus
   error?: {
@@ -70,6 +76,8 @@ export type DelegatedRunArgs = {
   events?: string
   continue?: boolean
   continueId?: string | null
+  sessionId?: string
+  keepSession?: boolean
 }
 
 export type DelegatedRunValidation =
@@ -79,6 +87,8 @@ export type DelegatedRunValidation =
       timeoutMs: number
       maxAgentSteps?: number
       continuationId?: string
+      sessionId?: string
+      keepSession: boolean
     }
   | { valid: false; code: string; message: string }
 
@@ -94,6 +104,7 @@ export type DelegatedRunEvent =
       type: 'session_admitted'
       model: string
       elapsedMs: number
+      session?: DelegatedSessionLease
     }
   | {
       schemaVersion: 1
@@ -141,8 +152,14 @@ export type DelegatedRunDependencies = {
     token: string
     model: string
     signal: AbortSignal
-  }) => Promise<{ instanceId: string; model: string }>
-  release: (token: string) => Promise<void>
+  }) => Promise<{ instanceId: string; model: string; expiresAt: string }>
+  resume: (params: {
+    token: string
+    sessionId: string
+    model?: string
+    signal: AbortSignal
+  }) => Promise<{ instanceId: string; model: string; expiresAt: string }>
+  release: (params: { token: string; instanceId: string }) => Promise<void>
   getClient: () => Promise<DelegatedClient | null>
   loadAgents: () => AgentDefinition[]
   fetchSponsors: (params: {
@@ -186,6 +203,7 @@ export function validateDelegatedRunArgs(
   args: DelegatedRunArgs,
 ): DelegatedRunValidation {
   const continuationId = args.continueId?.trim() || undefined
+  const sessionId = args.sessionId?.trim() || undefined
   if (args.continue && !continuationId) {
     return {
       valid: false,
@@ -201,7 +219,7 @@ export function validateDelegatedRunArgs(
       message: 'A continuation handle requires `--continue`.',
     }
   }
-  if (!args.model?.trim() && !continuationId) {
+  if (!args.model?.trim() && !continuationId && !sessionId) {
     return {
       valid: false,
       code: 'model_required',
@@ -270,6 +288,8 @@ export function validateDelegatedRunArgs(
     ...(args.model?.trim() ? { model: args.model.trim() } : {}),
     timeoutMs,
     ...(continuationId ? { continuationId } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    keepSession: Boolean(args.keepSession),
     ...(maxAgentSteps !== undefined && maxAgentSteps !== null
       ? { maxAgentSteps }
       : {}),
@@ -336,6 +356,8 @@ export async function runDelegated(
     maxAgentSteps?: number
     cwd?: string
     continuationId?: string
+    sessionId?: string
+    keepSession?: boolean
     onEvent?: (event: DelegatedRunEvent) => void
     signal?: AbortSignal
   },
@@ -350,7 +372,9 @@ export async function runDelegated(
   let agentFromEvent: string | undefined
   let sponsors: SponsorMessage[] = []
   let sponsorStatus: SponsorStatus = 'unavailable'
-  let admission: { instanceId: string; model: string } | undefined
+  let admission:
+    { instanceId: string; model: string; expiresAt: string } | undefined
+  let retainedSession: DelegatedSessionLease | undefined
   let token: string | undefined
   let effectiveModel = params.model
   let previousRun: RunState | undefined
@@ -374,7 +398,7 @@ export async function runDelegated(
       code: error.code,
       elapsedMs: Math.max(0, now() - startedAt),
     })
-    return finishError(error)
+    return finishError({ ...error, session: retainedSession })
   }
 
   const finishCancelledResult = (
@@ -386,7 +410,7 @@ export async function runDelegated(
       elapsedMs: Math.max(0, now() - startedAt),
       timedOut: timedOut,
     })
-    return finishCancelled(cancelled)
+    return finishCancelled({ ...cancelled, session: retainedSession })
   }
 
   emit({
@@ -468,7 +492,7 @@ export async function runDelegated(
       previousRun = continuation.runState
     }
 
-    if (!effectiveModel) {
+    if (!effectiveModel && !params.sessionId) {
       return finishErrorResult({
         startedAt,
         now,
@@ -479,16 +503,34 @@ export async function runDelegated(
       })
     }
 
-    admission = await dependencies.admit({
-      token,
-      model: effectiveModel,
-      signal: controller.signal,
-    })
+    if (params.sessionId) {
+      admission = await dependencies.resume({
+        token,
+        sessionId: params.sessionId,
+        ...(effectiveModel ? { model: effectiveModel } : {}),
+        signal: controller.signal,
+      })
+    } else {
+      admission = await dependencies.admit({
+        token,
+        model: effectiveModel!,
+        signal: controller.signal,
+      })
+    }
+    effectiveModel = admission.model
+    if (params.keepSession) {
+      retainedSession = {
+        id: admission.instanceId,
+        model: admission.model,
+        expiresAt: admission.expiresAt,
+      }
+    }
     emit({
       schemaVersion: 1,
       type: 'session_admitted',
       model: effectiveModel,
       elapsedMs: Math.max(0, now() - startedAt),
+      ...(retainedSession ? { session: retainedSession } : {}),
     })
 
     const sponsorResult = await dependencies.fetchSponsors({
@@ -645,6 +687,7 @@ export async function runDelegated(
         traceSessionId: runState.traceSessionId,
         ...(cost !== undefined ? { cost } : {}),
         ...(savedContinuationId ? { continuationId: savedContinuationId } : {}),
+        ...(retainedSession ? { session: retainedSession } : {}),
         sponsors,
         sponsorStatus,
       },
@@ -682,9 +725,9 @@ export async function runDelegated(
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle)
     removeExternalAbort?.()
-    if (token && admission) {
+    if (token && admission && !params.keepSession) {
       try {
-        await dependencies.release(token)
+        await dependencies.release({ token, instanceId: admission.instanceId })
       } catch {
         // Session cleanup is best effort. It must not replace the result the
         // caller is waiting for; the server-side expiry sweep is the backstop.
@@ -725,10 +768,27 @@ function createDefaultDependencies(): DelegatedRunDependencies {
           `Freebuff could not admit the requested model (${response.status}).`,
         )
       }
-      return { instanceId: response.instanceId, model: response.model }
+      return {
+        instanceId: response.instanceId,
+        model: response.model,
+        expiresAt: response.expiresAt,
+      }
     },
-    release: async (token) => {
-      await callFreebuffSession('DELETE', token)
+    resume: async ({ token, sessionId, model, signal }) => {
+      const lease = await resumeDelegatedSession({
+        token,
+        sessionId,
+        ...(model ? { model } : {}),
+        signal,
+      })
+      return {
+        instanceId: lease.id,
+        model: lease.model,
+        expiresAt: lease.expiresAt,
+      }
+    },
+    release: async ({ token, instanceId }) => {
+      await callFreebuffSession('DELETE', token, { instanceId })
     },
     getClient: async () => {
       const client = await getHeadlessCodebuffClient()
@@ -789,6 +849,9 @@ function normalizeError(error: unknown): { code: string; message: string } {
   if (error instanceof DelegatedRunError) {
     return { code: error.code, message: error.message }
   }
+  if (error instanceof DelegatedSessionError) {
+    return { code: error.code, message: error.message }
+  }
   if (error instanceof Error) {
     return { code: 'runtime_error', message: 'Delegated run failed.' }
   }
@@ -805,6 +868,7 @@ function finishError(params: {
   sponsors: SponsorMessage[]
   sponsorStatus: SponsorStatus
   continuationId?: string
+  session?: DelegatedSessionLease
   code: string
   message: string
 }): { envelope: DelegatedRunEnvelope; exitCode: number } {
@@ -823,6 +887,7 @@ function finishError(params: {
       ...(params.continuationId
         ? { continuationId: params.continuationId }
         : {}),
+      ...(params.session ? { session: params.session } : {}),
       sponsors: params.sponsors,
       sponsorStatus: params.sponsorStatus,
       error: { code: params.code, message: params.message },
@@ -841,6 +906,7 @@ function finishCancelled(params: {
   sponsors: SponsorMessage[]
   sponsorStatus: SponsorStatus
   continuationId?: string
+  session?: DelegatedSessionLease
   message: string
 }): { envelope: DelegatedRunEnvelope; exitCode: number } {
   return {
@@ -858,6 +924,7 @@ function finishCancelled(params: {
       ...(params.continuationId
         ? { continuationId: params.continuationId }
         : {}),
+      ...(params.session ? { session: params.session } : {}),
       sponsors: params.sponsors,
       sponsorStatus: params.sponsorStatus,
       error: { code: 'cancelled', message: params.message },

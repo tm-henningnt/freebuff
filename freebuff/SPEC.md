@@ -11,18 +11,45 @@ freebuff run --model <supported-freebuff-model> --prompt <text> --format json
 freebuff run --model <supported-freebuff-model> --prompt-file <path-or->
 freebuff run --continue <continuation-id> --prompt <follow-up>
 freebuff run --model <supported-freebuff-model> --prompt <text> --events jsonl
+freebuff run --model <supported-freebuff-model> --prompt <text> --keep-session
+freebuff run --session <session-id> --prompt <text>
+freebuff session end --session <session-id>
 freebuff models --format json
 ```
 
-`run` requires an explicit model and exactly one prompt source. It admits the
-requested model through the normal Freebuff session endpoint, derives the
+`run` requires exactly one prompt source. A new run requires `--model`; a
+continuation run may omit it because the stored model is reused; a retained
+session run may omit it because the server lease is model-bound. When more
+than one source of model identity is supplied, they must agree. Freebuff
+admits the requested model through the normal session endpoint, derives the
 model-pinned root agent, edits the caller's current workspace directly, and
-returns one JSON completion envelope. A continuation run may omit `--model`;
-the stored model is reused, and a supplied model must match it. Continuation
-handles are opaque, bound to the original workspace, stored locally for seven
-days, and consumed when a resumed run produces a replacement handle. Freebuff
-does not launch interactive login, silently fall back to another model, or
-manage workspace concurrency.
+returns one JSON completion envelope. Continuation handles are opaque, bound
+to the original workspace, stored locally for seven days, and consumed when a
+resumed run produces a replacement handle. Freebuff does not launch
+interactive login, silently fall back to another model, or manage workspace
+concurrency.
+
+The default run lifecycle is one-shot: the server-side session is released in
+the runner's cleanup path, including failures and cancellation. `--keep-session`
+opts into a retained server lease and adds this opaque metadata to the
+completion envelope:
+
+```json
+{
+  "session": {
+    "id": "server-instance-id",
+    "model": "deepseek/deepseek-v4-pro",
+    "expiresAt": "2026-08-15T13:00:00.000Z"
+  }
+}
+```
+
+`--session <id>` verifies and resumes an active retained lease. It is
+independent from `--continue`: use both to resume the same server lease and
+the same local SDK run state. A resumed lease is released by default and is
+retained only when `--keep-session` is supplied again. `freebuff session end`
+verifies the supplied lease and ends it explicitly. If a process disappears
+before cleanup, server expiry is the fallback.
 
 `--events jsonl` emits safe lifecycle events (`run_started`,
 `session_admitted`, `sponsor_batch`, `agent_started`, `agent_finished`,

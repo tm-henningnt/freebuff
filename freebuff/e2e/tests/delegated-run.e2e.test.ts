@@ -46,6 +46,9 @@ describe('Freebuff delegated run contract', () => {
       expect(result.status).toBe(0)
       expect(result.stdout).toContain('--events')
       expect(result.stdout).toContain('--continue')
+      expect(result.stdout).toContain('--session')
+      expect(result.stdout).toContain('--keep-session')
+      expect(result.stdout).toContain('session end')
     } finally {
       fs.rmSync(home, { recursive: true, force: true })
     }
