@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import {
   SUPPORTED_FREEBUFF_MODELS,
+  isFreebuffPausedFreeModelId,
   isSupportedFreebuffModelId,
 } from '@codebuff/common/constants/freebuff-models'
 import { callFreebuffSession } from './utils/freebuff-session-api'
@@ -737,7 +738,16 @@ export async function runDelegated(
 }
 
 export function getFreebuffModelCatalog() {
-  return SUPPORTED_FREEBUFF_MODELS.map((model) => ({
+  // SUPPORTED_FREEBUFF_MODELS keeps a WITHDRAWN model's row so the server can
+  // still recognise and coerce the id when an old, already-shipped binary
+  // sends it — see FREEBUFF_PAUSED_FREE_MODEL_IDS. That backward-compat
+  // reason does not apply to this catalog: a caller running `freebuff models`
+  // is asking what to pick right now, not what a stale binary might still
+  // hold, so a paused row here just admits with model_unavailable. Filter it
+  // out rather than list a model that cannot be selected.
+  return SUPPORTED_FREEBUFF_MODELS.filter(
+    (model) => !isFreebuffPausedFreeModelId(model.id),
+  ).map((model) => ({
     id: model.id,
     displayName: model.displayName,
     tagline: model.tagline,
