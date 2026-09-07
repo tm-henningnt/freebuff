@@ -512,7 +512,7 @@ export async function runDelegated(
       })
     }
 
-    if (!params.takeOver && !params.sessionId) {
+    if (!params.sessionId) {
       const currentSession = await dependencies.getCurrentSession({
         token,
         signal: controller.signal,
@@ -521,7 +521,7 @@ export async function runDelegated(
         currentSession.status === 'active' ||
         (currentSession.status === 'ended' &&
           Boolean(currentSession.instanceId))
-      if (sessionIsLive) {
+      if (sessionIsLive && !params.takeOver) {
         return finishErrorResult({
           startedAt,
           now,
@@ -532,6 +532,12 @@ export async function runDelegated(
           message:
             `Another Freebuff instance is already active on this account (model: ${currentSession.status === 'active' ? currentSession.model : effectiveModel ?? 'unknown'}). ` +
             'Run again with `--take-over` only if you want to stop it.',
+        })
+      }
+      if (sessionIsLive && params.takeOver && 'instanceId' in currentSession) {
+        await dependencies.release({
+          token,
+          instanceId: currentSession.instanceId,
         })
       }
     }

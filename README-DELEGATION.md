@@ -41,7 +41,8 @@ the result. Neither form starts a delegated session.
 - `--keep-session` retains the server-side Freebuff session after the run.
 - `--session <session-id>` reuses a retained server session.
 - `--take-over` explicitly displaces an existing Freebuff instance before this
-  run starts.
+  run starts. It releases the current live session first, then admits the
+  requested model; use it only when intentionally stopping the other run.
 
 The process uses exit code `0` for success, `1` for runtime/provider errors,
 `2` for invalid arguments, and `130` for cancellation. Diagnostics stay out of
@@ -78,6 +79,36 @@ fresh server session. `--session` without `--continue` reuses the server lease
 with a fresh local agent invocation. A retained session is released after the
 next run unless `--keep-session` is supplied again. End it explicitly when the
 workflow is finished; server expiry is the fallback if the process is killed.
+
+## Single-instance rules
+
+Freebuff allows only one active instance per account. This applies across the
+TUI and delegated runs, including runs using different models.
+
+Delegating agents must run Freebuff processes serially: wait for one process to
+exit before starting the next. Do not pass `--keep-session` for an ordinary
+one-shot run. A retained session survives process exit and must be ended with
+the session id from the completion envelope:
+
+```bash
+freebuff session end --session <session-id>
+```
+
+By default, a new delegated run never displaces an existing live session. It
+returns `session_in_use` with exit code `1`. Use `--take-over` when the caller
+has deliberately decided that the existing TUI or delegated run should stop:
+
+```bash
+freebuff run \
+  --model z-ai/glm-5.3-flash \
+  --prompt "Inspect the project" \
+  --take-over \
+  --format json
+```
+
+If a previous process was killed, the server-side session may remain active
+until it expires. A stale local owner file does not clear that server session;
+use `--take-over` or end the retained session explicitly when its id is known.
 
 ## Result envelope
 

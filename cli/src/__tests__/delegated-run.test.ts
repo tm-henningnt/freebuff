@@ -267,6 +267,13 @@ test('takes over an existing session when explicitly requested', async () => {
 
   expect(result.exitCode).toBe(0)
   expect(calls).toContain('admit:deepseek/deepseek-v4-pro')
+  expect(calls).toEqual([
+    'release',
+    'admit:deepseek/deepseek-v4-pro',
+    'sponsors',
+    'run:base3-free-deepseek',
+    'release',
+  ])
 })
 
 test('preserves the agent error code and message in the completion envelope', async () => {
