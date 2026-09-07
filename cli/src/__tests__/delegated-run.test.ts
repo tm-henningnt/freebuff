@@ -70,6 +70,13 @@ describe('delegated run arguments', () => {
         events: 'xml',
       }),
     ).toMatchObject({ valid: false, code: 'unsupported_events' })
+    expect(
+      validateDelegatedRunArgs({
+        model: MODEL,
+        prompt: 'one',
+        takeOver: true,
+      }),
+    ).toMatchObject({ valid: true, takeOver: true })
   })
 
   test('reads a file prompt and refuses implicit tty stdin', async () => {
@@ -93,6 +100,7 @@ function createDependencies(): {
   const calls: string[] = []
   const dependencies: DelegatedRunDependencies = {
     getToken: () => 'token',
+    getCurrentSession: async () => ({ status: 'none' }),
     admit: async ({ model }) => {
       calls.push(`admit:${model}`)
       return { instanceId: 'instance-1', model, expiresAt: EXPIRES_AT }
@@ -204,6 +212,61 @@ test('authentication failure is structured and does not start a session', async 
     sponsorStatus: 'unavailable',
   })
   expect(calls).toEqual([])
+})
+
+test('refuses to displace an existing session unless takeover is explicit', async () => {
+  const { dependencies, calls } = createDependencies()
+  dependencies.getCurrentSession = async () => ({
+    status: 'active',
+    accessTier: 'full',
+    instanceId: 'existing-instance',
+    model: MODEL,
+    admittedAt: '2026-09-07T10:00:00.000Z',
+    expiresAt: EXPIRES_AT,
+    remainingMs: 60_000,
+  })
+
+  const result = await runDelegated(
+    { model: MODEL, prompt: 'Do not displace it', timeoutMs: 10_000 },
+    dependencies,
+  )
+
+  expect(result.exitCode).toBe(1)
+  expect(result.envelope).toMatchObject({
+    status: 'error',
+    error: {
+      code: 'session_in_use',
+      message:
+        'Another Freebuff instance is already active on this account (model: deepseek/deepseek-v4-pro). Run again with `--take-over` only if you want to stop it.',
+    },
+  })
+  expect(calls).not.toContain('admit:deepseek/deepseek-v4-pro')
+})
+
+test('takes over an existing session when explicitly requested', async () => {
+  const { dependencies, calls } = createDependencies()
+  dependencies.getCurrentSession = async () => ({
+    status: 'active',
+    accessTier: 'full',
+    instanceId: 'existing-instance',
+    model: MODEL,
+    admittedAt: '2026-09-07T10:00:00.000Z',
+    expiresAt: EXPIRES_AT,
+    remainingMs: 60_000,
+  })
+
+  const result = await runDelegated(
+    {
+      model: MODEL,
+      prompt: 'Take it over',
+      timeoutMs: 10_000,
+      takeOver: true,
+    },
+    dependencies,
+  )
+
+  expect(result.exitCode).toBe(0)
+  expect(calls).toContain('admit:deepseek/deepseek-v4-pro')
 })
 
 test('preserves the agent error code and message in the completion envelope', async () => {

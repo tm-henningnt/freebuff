@@ -35,6 +35,7 @@ import {
 
 import type { AgentDefinition, RunState } from '@codebuff/sdk'
 import type { AgentOutput } from '@codebuff/common/types/session-state'
+import type { FreebuffSessionServerResponse } from '@codebuff/common/types/freebuff-session'
 
 export const DELEGATED_RUN_DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
 export const DELEGATED_RUN_EXIT_CODES = {
@@ -78,6 +79,7 @@ export type DelegatedRunArgs = {
   continueId?: string | null
   sessionId?: string
   keepSession?: boolean
+  takeOver?: boolean
 }
 
 export type DelegatedRunValidation =
@@ -89,6 +91,7 @@ export type DelegatedRunValidation =
       continuationId?: string
       sessionId?: string
       keepSession: boolean
+      takeOver: boolean
     }
   | { valid: false; code: string; message: string }
 
@@ -148,6 +151,10 @@ export type DelegatedRunEvent =
 
 export type DelegatedRunDependencies = {
   getToken: () => string | undefined
+  getCurrentSession: (params: {
+    token: string
+    signal: AbortSignal
+  }) => Promise<FreebuffSessionServerResponse>
   admit: (params: {
     token: string
     model: string
@@ -290,6 +297,7 @@ export function validateDelegatedRunArgs(
     ...(continuationId ? { continuationId } : {}),
     ...(sessionId ? { sessionId } : {}),
     keepSession: Boolean(args.keepSession),
+    takeOver: Boolean(args.takeOver),
     ...(maxAgentSteps !== undefined && maxAgentSteps !== null
       ? { maxAgentSteps }
       : {}),
@@ -358,6 +366,7 @@ export async function runDelegated(
     continuationId?: string
     sessionId?: string
     keepSession?: boolean
+    takeOver?: boolean
     onEvent?: (event: DelegatedRunEvent) => void
     signal?: AbortSignal
   },
@@ -501,6 +510,30 @@ export async function runDelegated(
         code: 'model_required',
         message: '--model is required for a new delegated run.',
       })
+    }
+
+    if (!params.takeOver && !params.sessionId) {
+      const currentSession = await dependencies.getCurrentSession({
+        token,
+        signal: controller.signal,
+      })
+      const sessionIsLive =
+        currentSession.status === 'active' ||
+        (currentSession.status === 'ended' &&
+          Boolean(currentSession.instanceId))
+      if (sessionIsLive) {
+        return finishErrorResult({
+          startedAt,
+          now,
+          model: effectiveModel,
+          sponsors,
+          sponsorStatus,
+          code: 'session_in_use',
+          message:
+            `Another Freebuff instance is already active on this account (model: ${currentSession.status === 'active' ? currentSession.model : effectiveModel ?? 'unknown'}). ` +
+            'Run again with `--take-over` only if you want to stop it.',
+        })
+      }
     }
 
     if (params.sessionId) {
@@ -830,6 +863,8 @@ function createDefaultDependencies(): DelegatedRunDependencies {
     createDelegatedContinuationStore()
   return {
     getToken: () => getAuthTokenDetails().token,
+    getCurrentSession: ({ token, signal }) =>
+      callFreebuffSession('GET', token, { signal }),
     admit: async ({ token, model, signal }) => {
       const response = await callFreebuffSession('POST', token, {
         model,

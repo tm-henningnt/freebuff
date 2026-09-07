@@ -26,6 +26,7 @@ export type ParsedArgs = {
   events?: string
   sessionId?: string
   keepSession: boolean
+  takeOver: boolean
 }
 
 export function loadPackageVersion(): string {
@@ -95,6 +96,10 @@ export function parseArgs({
       .option(
         '--keep-session',
         'Keep the delegated session open after this run',
+      )
+      .option(
+        '--take-over',
+        'Take over an existing Freebuff instance before this run',
       )
       .addArgument(
         new Argument('[command]', 'Command to run').choices([
@@ -187,5 +192,6 @@ export function parseArgs({
     events: options.events,
     sessionId: options.session,
     keepSession: Boolean(options.keepSession),
+    takeOver: Boolean(options.takeOver),
   }
 }

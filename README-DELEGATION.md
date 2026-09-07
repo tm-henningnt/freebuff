@@ -3,6 +3,11 @@
 Freebuff can run one bounded coding task without starting its TUI. This is the
 preferred surface for another agent, a script, or a CI-style workflow.
 
+Only one Freebuff instance may be active per account. Delegating agents should
+run Freebuff tasks serially and wait for each process to exit before starting
+the next one. A delegated run refuses to displace an existing instance by
+default; use `--take-over` only when intentionally stopping that instance.
+
 ```bash
 freebuff run \
   --model deepseek/deepseek-v4-pro \
@@ -35,6 +40,8 @@ the result. Neither form starts a delegated session.
   run. Handles are workspace- and model-bound and expire after seven days.
 - `--keep-session` retains the server-side Freebuff session after the run.
 - `--session <session-id>` reuses a retained server session.
+- `--take-over` explicitly displaces an existing Freebuff instance before this
+  run starts.
 
 The process uses exit code `0` for success, `1` for runtime/provider errors,
 `2` for invalid arguments, and `130` for cancellation. Diagnostics stay out of

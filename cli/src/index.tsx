@@ -195,6 +195,7 @@ async function runDelegatedCommand(params: {
   continueId?: string | null
   sessionId?: string
   keepSession?: boolean
+  takeOver?: boolean
 }): Promise<void> {
   const outputMode = getDelegatedOutputMode(params.events)
   const validation = validateDelegatedRunArgs(params)
@@ -249,6 +250,7 @@ async function runDelegatedCommand(params: {
         : {}),
       ...(validation.sessionId ? { sessionId: validation.sessionId } : {}),
       ...(validation.keepSession ? { keepSession: true } : {}),
+      ...(validation.takeOver ? { takeOver: true } : {}),
       cwd: params.cwd ?? process.cwd(),
       timeoutMs: validation.timeoutMs,
       ...(validation.maxAgentSteps !== undefined
@@ -504,6 +506,7 @@ async function main(): Promise<void> {
     events,
     sessionId,
     keepSession,
+    takeOver,
   } = parsedArgs
 
   if (IS_FREEBUFF && command === 'models') {
@@ -582,6 +585,7 @@ async function main(): Promise<void> {
         continueId,
         sessionId,
         keepSession,
+        takeOver,
       })
     } catch {
       writeDelegatedRuntimeError(model, getDelegatedOutputMode(events))
