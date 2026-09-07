@@ -50,6 +50,7 @@ evals/buffbench/*-error-*.json
 .freebuff/
 
 # Materialized by release package prepack scripts and removed by postpack.
+*.bun-build
 cli/release/launcher.js
 cli/release/http.js
 cli/release-staging/launcher.js
