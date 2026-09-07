@@ -447,7 +447,7 @@ export async function runDelegated(
         sponsorStatus,
         code: 'auth_required',
         message:
-          'No authentication token is available. Run `freebuff login` first.',
+          'Freebuff authentication is required. No token was found in the local credentials file or CODEBUFF_API_KEY. Run `freebuff login` or set CODEBUFF_API_KEY.',
       })
     }
 
@@ -671,8 +671,10 @@ export async function runDelegated(
         sponsors,
         sponsorStatus,
         continuationId: savedContinuationId,
-        code: 'agent_error',
-        message: 'The delegated agent reported an error.',
+        code: runState.output.error?.trim() || 'agent_error',
+        message:
+          runState.output.message.trim() ||
+          'The delegated agent reported an error.',
       })
     }
 

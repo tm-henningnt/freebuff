@@ -109,7 +109,11 @@ describe('Freebuff delegated run contract', () => {
         type: 'completion',
         envelope: {
           status: 'error',
-          error: { code: 'auth_required' },
+          error: {
+            code: 'auth_required',
+            message:
+              'Freebuff authentication is required. No token was found in the local credentials file or CODEBUFF_API_KEY. Run `freebuff login` or set CODEBUFF_API_KEY.',
+          },
         },
       })
       expect(result.stdout).not.toContain('Do not execute this task')

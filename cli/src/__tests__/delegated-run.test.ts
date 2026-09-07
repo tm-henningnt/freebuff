@@ -197,11 +197,42 @@ test('authentication failure is structured and does not start a session', async 
     status: 'error',
     error: {
       code: 'auth_required',
+      message:
+        'Freebuff authentication is required. No token was found in the local credentials file or CODEBUFF_API_KEY. Run `freebuff login` or set CODEBUFF_API_KEY.',
     },
     sponsors: [],
     sponsorStatus: 'unavailable',
   })
   expect(calls).toEqual([])
+})
+
+test('preserves the agent error code and message in the completion envelope', async () => {
+  const { dependencies } = createDependencies()
+  dependencies.getClient = async () => ({
+    run: async () => ({
+      traceSessionId: 'trace-provider-error',
+      output: {
+        type: 'error' as const,
+        error: 'provider_rate_limited',
+        message: 'The selected provider is temporarily rate limited.',
+      },
+    }),
+  })
+
+  const result = await runDelegated(
+    { model: MODEL, prompt: 'Try it', timeoutMs: 10_000 },
+    dependencies,
+  )
+
+  expect(result.exitCode).toBe(1)
+  expect(result.envelope).toMatchObject({
+    status: 'error',
+    traceSessionId: 'trace-provider-error',
+    error: {
+      code: 'provider_rate_limited',
+      message: 'The selected provider is temporarily rate limited.',
+    },
+  })
 })
 
 test('keeps a retained session and returns its lease metadata', async () => {
