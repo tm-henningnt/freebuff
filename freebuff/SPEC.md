@@ -14,6 +14,7 @@ freebuff run --model <supported-freebuff-model> --prompt <text> --events jsonl
 freebuff run --model <supported-freebuff-model> --prompt <text> --keep-session
 freebuff run --session <session-id> --prompt <text>
 freebuff session end --session <session-id>
+freebuff models --format table
 freebuff models --format json
 ```
 

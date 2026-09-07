@@ -13,8 +13,9 @@ freebuff run \
 Run `freebuff login` first. The command edits the workspace directly, so use
 `--cwd` when the caller's current directory is not the target project.
 
-Use `freebuff models --format json` to discover the local model catalog without
-starting a delegated session.
+Use `freebuff models --format table` to inspect the local model catalog in a
+terminal, or `freebuff models --format json` when another program will consume
+the result. Neither form starts a delegated session.
 
 ## Run options
 
@@ -26,7 +27,9 @@ starting a delegated session.
 - `--cwd <directory>` selects the workspace.
 - `--timeout <seconds>` sets the maximum run time; the default is 1800 seconds.
 - `--max-agent-steps <steps>` bounds the agent's tool loop.
-- `--format json` requests one JSON completion object. This is the default.
+- `freebuff models --format table` prints a human-readable model table.
+- `freebuff models --format json` prints the machine-readable catalog. This is
+  the default for `models` and the only supported format for `run`.
 - `--events jsonl` emits lifecycle events, ending with a `completion` event.
 - `--continue <continuation-id>` resumes local SDK agent state from a previous
   run. Handles are workspace- and model-bound and expire after seven days.

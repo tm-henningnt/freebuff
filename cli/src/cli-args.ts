@@ -88,7 +88,7 @@ export function parseArgs({
       )
       .option(
         '--format <format>',
-        'Output format (run currently supports json)',
+        'Output format (models: json or table; run: json)',
       )
       .option('--events <format>', 'Progress event format (run supports jsonl)')
       .option('--session <session-id>', 'Reuse a retained delegated session')

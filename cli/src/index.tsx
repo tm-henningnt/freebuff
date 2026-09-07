@@ -50,6 +50,7 @@ import { setOscDetectedTheme } from './utils/theme-system'
 import {
   DELEGATED_RUN_EXIT_CODES,
   getFreebuffModelCatalog,
+  formatFreebuffModelCatalogTable,
   readDelegatedPrompt,
   runDelegated,
   validateDelegatedRunArgs,
@@ -506,14 +507,19 @@ async function main(): Promise<void> {
   } = parsedArgs
 
   if (IS_FREEBUFF && command === 'models') {
-    if (format && format !== 'json') {
+    const outputFormat = format ?? 'json'
+    if (outputFormat !== 'json' && outputFormat !== 'table') {
       process.stderr.write(
-        '`freebuff models` currently supports only --format json.\n',
+        '`freebuff models` supports --format json or --format table.\n',
       )
       process.exitCode = DELEGATED_RUN_EXIT_CODES.invalidArguments
       return
     }
-    process.stdout.write(`${JSON.stringify(getFreebuffModelCatalog())}\n`)
+    process.stdout.write(
+      outputFormat === 'table'
+        ? formatFreebuffModelCatalogTable()
+        : `${JSON.stringify(getFreebuffModelCatalog())}\n`,
+    )
     return
   }
 

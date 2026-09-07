@@ -737,7 +737,18 @@ export async function runDelegated(
   }
 }
 
-export function getFreebuffModelCatalog() {
+export type FreebuffModelCatalogEntry = {
+  id: string
+  displayName: string
+  tagline: string
+  availability: 'always' | 'deployment_hours' | 'off_peak_only'
+  premium: boolean
+  multimodal: boolean
+  warning?: string
+  dataUse: 'service' | 'training'
+}
+
+export function getFreebuffModelCatalog(): FreebuffModelCatalogEntry[] {
   // SUPPORTED_FREEBUFF_MODELS keeps a WITHDRAWN model's row so the server can
   // still recognise and coerce the id when an old, already-shipped binary
   // sends it — see FREEBUFF_PAUSED_FREE_MODEL_IDS. That backward-compat
@@ -757,6 +768,65 @@ export function getFreebuffModelCatalog() {
     ...('warning' in model && model.warning ? { warning: model.warning } : {}),
     dataUse: model.dataUse,
   }))
+}
+
+function formatModelAvailability(
+  availability: FreebuffModelCatalogEntry['availability'],
+): string {
+  switch (availability) {
+    case 'deployment_hours':
+      return 'Deployment hours'
+    case 'off_peak_only':
+      return 'Off-peak only'
+    case 'always':
+      return 'Always'
+  }
+}
+
+function formatModelDataUse(dataUse: FreebuffModelCatalogEntry['dataUse']): string {
+  return dataUse === 'training' ? 'May train' : 'Service only'
+}
+
+function padTableCell(value: string, width: number): string {
+  return ` ${value.padEnd(width)} `
+}
+
+/** Render the local model catalog for people reading a terminal. */
+export function formatFreebuffModelCatalogTable(
+  catalog: readonly FreebuffModelCatalogEntry[] = getFreebuffModelCatalog(),
+): string {
+  const headers = [
+    'ID',
+    'NAME',
+    'AVAILABILITY',
+    'ACCESS',
+    'INPUT',
+    'DATA USE',
+    'DESCRIPTION',
+  ]
+  const rows = catalog.map((model) => [
+    model.id,
+    model.displayName,
+    formatModelAvailability(model.availability),
+    model.premium ? 'Premium' : 'Free',
+    model.multimodal ? 'Text + image' : 'Text',
+    formatModelDataUse(model.dataUse),
+    model.warning ? `${model.tagline} (${model.warning})` : model.tagline,
+  ])
+  const widths = headers.map((header, column) =>
+    Math.max(header.length, ...rows.map((row) => row[column].length)),
+  )
+  const renderRow = (row: readonly string[]) =>
+    `|${row.map((cell, column) => padTableCell(cell, widths[column])).join('|')}|`
+  const separator = `|${widths.map((width) => `-${'-'.repeat(width)}-`).join('|')}|`
+
+  return [
+    `Freebuff models (${catalog.length})`,
+    renderRow(headers),
+    separator,
+    ...rows.map(renderRow),
+    '',
+  ].join('\n')
 }
 
 function createDefaultDependencies(): DelegatedRunDependencies {
