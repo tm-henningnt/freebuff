@@ -1,5 +1,11 @@
 import {
+  FREEBUFF_FABLE_5_MODEL_ID,
+  FREEBUFF_GEMINI_38_FLASH_MODEL_ID,
+  FREEBUFF_MODELS,
+} from '@codebuff/common/constants/freebuff-models'
+import {
   formatFreebuffModelCatalogTable,
+  getFreebuffModelCatalog,
   type FreebuffModelCatalogEntry,
 } from '../delegated-run'
 
@@ -25,5 +31,17 @@ test('formats the model catalog as a readable table', () => {
       '| example/model | Example Model | Deployment hours | Premium | Text + image | May train | Fast coding model (May use data for AI training) |',
       '',
     ].join('\n'),
+  )
+})
+
+test('lists only standing CLI picker models', () => {
+  expect(getFreebuffModelCatalog().map((model) => model.id)).toEqual(
+    FREEBUFF_MODELS.map((model) => model.id),
+  )
+  expect(getFreebuffModelCatalog().map((model) => model.id)).not.toContain(
+    FREEBUFF_GEMINI_38_FLASH_MODEL_ID,
+  )
+  expect(getFreebuffModelCatalog().map((model) => model.id)).not.toContain(
+    FREEBUFF_FABLE_5_MODEL_ID,
   )
 })
